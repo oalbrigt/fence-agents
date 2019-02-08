@@ -24,7 +24,8 @@ def get_power_status(conn, options):
 		try:
 			status = re.compile("^" + options["--plug"] + ",(.*?),.*$",
 					re.IGNORECASE | re.MULTILINE).search(conn.before).group(1)
-		except AttributeError:
+		except AttributeError as e:
+			logging.error("Failed: {}".format(str(e)))
 			fail(EC_STATUS_HMC)
 	elif options["--hmc-version"] in ["4", "IVM"]:
 		conn.send("lssyscfg -r lpar -m "+ options["--managed"] +
@@ -33,7 +34,8 @@ def get_power_status(conn, options):
 
 		try:
 			status = re.compile(",state=(.*?),", re.IGNORECASE).search(conn.before).group(1)
-		except AttributeError:
+		except AttributeError as e:
+			logging.error("Failed: {}".format(str(e)))
 			fail(EC_STATUS_HMC)
 
 	##
