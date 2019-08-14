@@ -13,12 +13,15 @@ def get_nodes_list(clients, options):
     result = {}
 
     if clients:
-        compute_client = clients[0]
+        instance_client = clients[0]
         rgName = options["--resourceGroup"]
-        vms = compute_client.virtual_machines.list(rgName)
+        if options["--type"] == "vm":
+            instances = instance_client.virtual_machines.list(rgName)
+        elif options["--type"] == "hana":
+            instances = instance_client.hana_instances.list_by_resource_group(rgName)
         try:
-            for vm in vms:
-                result[vm.name] = ("", None)
+            for instance in instances:
+                result[instance.name] = ("", None)
         except Exception as e:
             fail_usage("Failed: %s" % e)
 
@@ -26,18 +29,18 @@ def get_nodes_list(clients, options):
 
 def check_unfence(clients, options):
     if clients:
-        compute_client = clients[0]
+        instance_client = clients[0]
         network_client = clients[1]
         rgName = options["--resourceGroup"]
 
         try:
-            vms = compute_client.virtual_machines.list(rgName)
+            vms = instance_client.virtual_machines.list(rgName)
         except Exception as e:
             fail_usage("Failed: %s" % e)
 
         for vm in vms:
             vmName = vm.name
-            if azure_fence.get_network_state(compute_client, network_client, rgName, vmName) == "off":
+            if azure_fence.get_network_state(instance_client, network_client, rgName, vmName) == "off":
                 logging.info("Found fenced node " + vmName)
                 # dont return "off" based on network-fencing status
                 options.pop("--network-fencing", None)
@@ -50,47 +53,51 @@ def check_unfence(clients, options):
                     options["--action"] = "monitor"
 
 def get_power_status(clients, options):
-    vmstate = { "running": "on",
+    state = { "running": "on",
+                "started": "on",
                 "deallocated": "off",
                 "stopped": "off" }
     logging.info("getting power status for VM " + options["--plug"])
 
     if clients:
-        compute_client = clients[0]
+        instance_client = clients[0]
         rgName = options["--resourceGroup"]
-        vmName = options["--plug"]
+        instanceName = options["--plug"]
 
         if "--network-fencing" in options:
             network_client = clients[1]
-            netState =  azure_fence.get_network_state(compute_client, network_client, rgName, vmName)
+            netState =  azure_fence.get_network_state(instance_client, network_client, rgName, instanceName)
             logging.info("Found network state of VM: " + netState)
 
             # return off quickly once network is fenced instead of waiting for vm state to change
             if options["--action"] == "off" and netState == "off":
-                logging.info("Network fenced for " + vmName)
+                logging.info("Network fenced for " + instanceName)
                 return netState
 
         powerState = "unknown"
         try:
-            vmStatus = compute_client.virtual_machines.get(rgName, vmName, "instanceView")
+            if options["--type"] == "vm":
+                instanceStatus = instance_client.virtual_machines.get(rgName, instanceName, "instanceView")
+                for status in instanceStatus.instance_view.statuses:
+                    if status.code.startswith("PowerState"):
+                        powerState = status.code.split("/")[1]
+                        break
+            elif options["--type"] == "hana":
+                instanceStatus = instance_client.hana_instances.get(rgName.encode(), instanceName.encode())
+                powerState = instanceStatus.power_state
         except Exception as e:
             fail_usage("Failed: %s" % e)
 
-        for status in vmStatus.instance_view.statuses:
-            if status.code.startswith("PowerState"):
-                powerState = status.code.split("/")[1]
-                break
-
-        vmState = vmstate.get(powerState, "unknown")
-        logging.info("Found power state of VM: %s (%s)" % (vmState, powerState))
+        instanceState = state.get(powerState, "unknown")
+        logging.info("Found power state of VM: %s (%s)" % (instanceState, powerState))
 
         if "--network-fencing" in options and netState == "off":
             return "off"
 
-        if options["--action"] != "on" and vmState != "off":
+        if options["--action"] != "on" and instanceState != "off":
             return "on"
 
-        if vmState == "on":
+        if instanceState == "on":
             return "on"
 
         return "off"
@@ -99,36 +106,52 @@ def set_power_status(clients, options):
     logging.info("setting power status for VM " + options["--plug"] + " to " + options["--action"])
 
     if clients:
-        compute_client = clients[0]
+        instance_client = clients[0]
         rgName = options["--resourceGroup"]
-        vmName = options["--plug"]
+        instanceName = options["--plug"]
+        hana_headers={"Content-Type": "application/json; charset=utf-8"}
 
         if "--network-fencing" in options:
             network_client = clients[1]
 
             if (options["--action"]=="off"):
-                logging.info("Fencing network for " + vmName)
-                azure_fence.set_network_state(compute_client, network_client, rgName, vmName, "block")
+                logging.info("Fencing network for " + instanceName)
+                azure_fence.set_network_state(instance_client, network_client, rgName, instanceName, "block")
             elif (options["--action"]=="on"):
-                logging.info("Unfencing network for " + vmName)
-                azure_fence.set_network_state(compute_client, network_client, rgName, vmName, "unblock")
+                logging.info("Unfencing network for " + instanceName)
+                azure_fence.set_network_state(instance_client, network_client, rgName, instanceName, "unblock")
 
         if (options["--action"]=="off"):
-            logging.info("Poweroff " + vmName + " in resource group " + rgName)
-            compute_client.virtual_machines.power_off(rgName, vmName, skip_shutdown=True)
+            logging.info("Poweroff " + instanceName + " in resource group " + rgName)
+            if options["--type"] == "vm":
+                instance_client.virtual_machines.power_off(rgName, instanceName, skip_shutdown=True)
+            elif options["--type"] == "hana":
+                instanceStatus = instance_client.hana_instances.shutdown(rgName, instanceName, custom_headers=hana_headers)
         elif (options["--action"]=="on"):
-            logging.info("Starting " + vmName + " in resource group " + rgName)
-            compute_client.virtual_machines.start(rgName, vmName)
+            logging.info("Starting " + instanceName + " in resource group " + rgName)
+            if options["--type"] == "vm":
+                instance_client.virtual_machines.start(rgName, instanceName)
+            elif options["--type"] == "hana":
+                instance_client.hana_instances.start(rgName, instanceName, custom_headers=hana_headers)
 
 
 def define_new_opts():
+    all_opt["type"] = {
+        "getopt" : ":",
+        "longopt" : "type",
+        "help" : "--type=[type]                  Type (e.g. vm or hana)",
+        "shortdesc" : "Type of machine (e.g. vm or hana)",
+        "default" : "vm",
+        "required" : "0",
+        "order" : 2
+    }
     all_opt["resourceGroup"] = {
         "getopt" : ":",
         "longopt" : "resourceGroup",
         "help" : "--resourceGroup=[name]         Name of the resource group",
         "shortdesc" : "Name of resource group. Metadata service is used if the value is not provided.",
         "required" : "0",
-        "order" : 2
+        "order" : 3
     }
     all_opt["tenantId"] = {
         "getopt" : ":",
@@ -136,7 +159,7 @@ def define_new_opts():
         "help" : "--tenantId=[name]              Id of the Azure Active Directory tenant",
         "shortdesc" : "Id of Azure Active Directory tenant.",
         "required" : "0",
-        "order" : 3
+        "order" : 4
     }
     all_opt["subscriptionId"] = {
         "getopt" : ":",
@@ -144,7 +167,7 @@ def define_new_opts():
         "help" : "--subscriptionId=[name]        Id of the Azure subscription",
         "shortdesc" : "Id of the Azure subscription. Metadata service is used if the value is not provided.",
         "required" : "0",
-        "order" : 4
+        "order" : 5
     }
     all_opt["network-fencing"] = {
         "getopt" : "",
@@ -154,7 +177,7 @@ def define_new_opts():
                                   Group configuration.",
         "shortdesc" : "Use network fencing. See NOTE-section for configuration.",
         "required" : "0",
-        "order" : 5
+        "order" : 6
     }
     all_opt["msi"] = {
         "getopt" : "",
@@ -165,7 +188,7 @@ def define_new_opts():
                                   allowed.",
         "shortdesc" : "Determines if Managed Service Identity should be used.",
         "required" : "0",
-        "order" : 6
+        "order" : 7
     }
     all_opt["cloud"] = {
         "getopt" : ":",
@@ -176,15 +199,15 @@ def define_new_opts():
                                   Azure.",
         "shortdesc" : "Name of the cloud you want to use.",
         "required" : "0",
-        "order" : 7
+        "order" : 8
     }
 
 # Main agent method
 def main():
-    compute_client = None
+    instance_client = None
     network_client = None
 
-    device_opt = ["login", "passwd", "port", "resourceGroup", "tenantId", "subscriptionId", "network-fencing", "msi", "cloud"]
+    device_opt = ["login", "passwd", "port", "type", "resourceGroup", "tenantId", "subscriptionId", "network-fencing", "msi", "cloud"]
 
     atexit.register(atexit_handler)
 
@@ -222,7 +245,7 @@ When using network fencing the reboot-action will cause a quick-return once the 
 
     try:
         config = azure_fence.get_azure_config(options)
-        compute_client = azure_fence.get_azure_compute_client(config)
+        instance_client = azure_fence.get_azure_instance_client(config)
         if "--network-fencing" in options:
             network_client = azure_fence.get_azure_network_client(config)
     except ImportError:
@@ -237,10 +260,10 @@ When using network fencing the reboot-action will cause a quick-return once the 
             options["--action"] = "off"
         # check for devices to unfence in monitor-action
         elif options["--action"] == "monitor":
-            check_unfence([compute_client, network_client], options)
+            check_unfence([instance_client, network_client], options)
 
     # Operate the fencing device
-    result = fence_action([compute_client, network_client], options, set_power_status, get_power_status, get_nodes_list)
+    result = fence_action([instance_client, network_client], options, set_power_status, get_power_status, get_nodes_list)
     sys.exit(result)
 
 if __name__ == "__main__":

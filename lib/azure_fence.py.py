@@ -246,6 +246,7 @@ def set_network_state(compute_client, network_client, rgName, vmName, operation)
 def get_azure_config(options):
     config = AzureConfiguration()
 
+    config.type = options.get("--type")
     config.RGName = options.get("--resourceGroup")
     config.VMName = options.get("--plug")
     config.SubscriptionId = options.get("--subscriptionId")
@@ -308,24 +309,42 @@ def get_azure_credentials(config):
 
     return credentials
 
-def get_azure_compute_client(config):
-    from azure.mgmt.compute import ComputeManagementClient
+def get_azure_instance_client(config):
+    if config.type == "vm":
+        from azure.mgmt.compute import ComputeManagementClient
+    elif config.type == "hana":
+        from azure.mgmt.hanaonazure import HanaManagementClient
+    else:
+        return 5
 
     cloud_environment = get_azure_cloud_environment(config)
     credentials = get_azure_credentials(config)
 
     if cloud_environment:
-        compute_client = ComputeManagementClient(
-            credentials,
-            config.SubscriptionId,
-            base_url=cloud_environment.endpoints.resource_manager
-        )
+        if config.type == "vm":
+            client = ComputeManagementClient(
+                credentials,
+                config.SubscriptionId,
+                base_url=cloud_environment.endpoints.resource_manager
+            )
+        elif config.type == "hana":
+            client = HanaManagementClient(
+                credentials,
+                config.SubscriptionId,
+                base_url=cloud_environment.endpoints.resource_manager
+            )
     else:
-        compute_client = ComputeManagementClient(
-            credentials,
-            config.SubscriptionId
-        )
-    return compute_client
+        if config.type == "vm":
+            client = ComputeManagementClient(
+                credentials,
+                config.SubscriptionId
+            )
+        elif config.type == "hana":
+            client = HanaManagementClient(
+                credentials,
+                config.SubscriptionId
+            )
+    return client
 
 def get_azure_network_client(config):
     from azure.mgmt.network import NetworkManagementClient
