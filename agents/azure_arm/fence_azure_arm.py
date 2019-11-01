@@ -6,8 +6,13 @@ import atexit
 import xml.etree.ElementTree as ET
 sys.path.append("@FENCEAGENTSLIBDIR@")
 from fencing import *
-from fencing import fail_usage, run_command, run_delay
+from fencing import fail_usage, fail, EC_TIMED_OUT
+from fencing import run_command, run_delay
 import azure_fence
+
+from requests.exceptions import ConnectionError
+logging.getLogger("adal-python").setLevel(logging.CRITICAL)
+
 
 def get_nodes_list(clients, options):
     result = {}
@@ -15,15 +20,19 @@ def get_nodes_list(clients, options):
     if clients:
         instance_client = clients[0]
         rgName = options["--resourceGroup"]
-        if options["--type"] == "vm":
-            instances = instance_client.virtual_machines.list(rgName)
-        elif options["--type"] == "hana":
-            instances = instance_client.hana_instances.list_by_resource_group(rgName)
+
         try:
-            for instance in instances:
-                result[instance.name] = ("", None)
+            if options["--type"] == "vm":
+                instances = instance_client.virtual_machines.list(rgName, proxies={"https": options["--proxy"]})
+            elif options["--type"] == "hana":
+                instances = instance_client.hana_instances.list_by_resource_group(rgName, proxies={"https": options["--proxy"]})
+        except ConnectionError:
+            fail(EC_TIMED_OUT)
         except Exception as e:
             fail_usage("Failed: %s" % e)
+
+        for instance in instances:
+            result[instance.name] = ("", None)
 
     return result
 
@@ -34,7 +43,9 @@ def check_unfence(clients, options):
         rgName = options["--resourceGroup"]
 
         try:
-            vms = instance_client.virtual_machines.list(rgName)
+            vms = instance_client.virtual_machines.list(rgName, proxies={"https": options["--proxy"]})
+        except ConnectionError:
+            fail(EC_TIMED_OUT)
         except Exception as e:
             fail_usage("Failed: %s" % e)
 
@@ -77,14 +88,16 @@ def get_power_status(clients, options):
         powerState = "unknown"
         try:
             if options["--type"] == "vm":
-                instanceStatus = instance_client.virtual_machines.get(rgName, instanceName, "instanceView")
+                instanceStatus = instance_client.virtual_machines.get(rgName, instanceName, "instanceView", proxies={"https": options["--proxy"]})
                 for status in instanceStatus.instance_view.statuses:
                     if status.code.startswith("PowerState"):
                         powerState = status.code.split("/")[1]
                         break
             elif options["--type"] == "hana":
-                instanceStatus = instance_client.hana_instances.get(rgName.encode(), instanceName.encode())
+                instanceStatus = instance_client.hana_instances.get(rgName.encode(), instanceName.encode(), proxies={"https": options["--proxy"]})
                 powerState = instanceStatus.power_state
+        except ConnectionError:
+            fail(EC_TIMED_OUT)
         except Exception as e:
             fail_usage("Failed: %s" % e)
 
@@ -111,28 +124,33 @@ def set_power_status(clients, options):
         instanceName = options["--plug"]
         hana_headers={"Content-Type": "application/json; charset=utf-8"}
 
-        if "--network-fencing" in options:
-            network_client = clients[1]
+        try:
+            if "--network-fencing" in options:
+                network_client = clients[1]
+
+                if (options["--action"]=="off"):
+                    logging.info("Fencing network for " + instanceName)
+                    azure_fence.set_network_state(instance_client, network_client, rgName, instanceName, "block")
+                elif (options["--action"]=="on"):
+                    logging.info("Unfencing network for " + instanceName)
+                    azure_fence.set_network_state(instance_client, network_client, rgName, instanceName, "unblock")
 
             if (options["--action"]=="off"):
-                logging.info("Fencing network for " + instanceName)
-                azure_fence.set_network_state(instance_client, network_client, rgName, instanceName, "block")
+                logging.info("Poweroff " + instanceName + " in resource group " + rgName)
+                if options["--type"] == "vm":
+                    instance_client.virtual_machines.power_off(rgName, instanceName, skip_shutdown=True, proxies={"https": options["--proxy"]})
+                elif options["--type"] == "hana":
+                    instanceStatus = instance_client.hana_instances.shutdown(rgName, instanceName, custom_headers=hana_headers, proxies={"https": options["--proxy"]})
             elif (options["--action"]=="on"):
-                logging.info("Unfencing network for " + instanceName)
-                azure_fence.set_network_state(instance_client, network_client, rgName, instanceName, "unblock")
-
-        if (options["--action"]=="off"):
-            logging.info("Poweroff " + instanceName + " in resource group " + rgName)
-            if options["--type"] == "vm":
-                instance_client.virtual_machines.power_off(rgName, instanceName, skip_shutdown=True)
-            elif options["--type"] == "hana":
-                instanceStatus = instance_client.hana_instances.shutdown(rgName, instanceName, custom_headers=hana_headers)
-        elif (options["--action"]=="on"):
-            logging.info("Starting " + instanceName + " in resource group " + rgName)
-            if options["--type"] == "vm":
-                instance_client.virtual_machines.start(rgName, instanceName)
-            elif options["--type"] == "hana":
-                instance_client.hana_instances.start(rgName, instanceName, custom_headers=hana_headers)
+                logging.info("Starting " + instanceName + " in resource group " + rgName)
+                if options["--type"] == "vm":
+                    instance_client.virtual_machines.start(rgName, instanceName, proxies={"https": options["--proxy"]})
+                elif options["--type"] == "hana":
+                    instance_client.hana_instances.start(rgName, instanceName, custom_headers=hana_headers, proxies={"https": options["--proxy"]})
+        except ConnectionError:
+            fail(EC_TIMED_OUT)
+        except:
+            pass
 
 
 def define_new_opts():
@@ -201,13 +219,22 @@ def define_new_opts():
         "required" : "0",
         "order" : 8
     }
+    all_opt["proxy"] = {
+        "getopt" : ":",
+        "longopt" : "proxy",
+        "help" : "--proxy=[proxy]                Proxy (e.g. http://192.168.1.2:3128).",
+        "shortdesc" : "Proxy (e.g. http://192.168.1.2:3128).",
+        "default" : "",
+        "required" : "0",
+        "order" : 9
+    }
 
 # Main agent method
 def main():
     instance_client = None
     network_client = None
 
-    device_opt = ["login", "passwd", "port", "type", "resourceGroup", "tenantId", "subscriptionId", "network-fencing", "msi", "cloud"]
+    device_opt = ["login", "passwd", "port", "type", "resourceGroup", "tenantId", "subscriptionId", "network-fencing", "msi", "cloud", "proxy"]
 
     atexit.register(atexit_handler)
 
@@ -248,6 +275,8 @@ When using network fencing the reboot-action will cause a quick-return once the 
         instance_client = azure_fence.get_azure_instance_client(config)
         if "--network-fencing" in options:
             network_client = azure_fence.get_azure_network_client(config)
+    except ConnectionError:
+        fail(EC_TIMED_OUT)
     except ImportError:
         fail_usage("Azure Resource Manager Python SDK not found or not accessible")
     except Exception as e:

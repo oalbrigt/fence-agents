@@ -28,13 +28,14 @@ class AzureResource:
 
 class AzureConfiguration:
     RGName = None
-    VMName = None
+    InstanceName = None
     SubscriptionId = None
     Cloud = None
     UseMSI = None
     Tenantid = None
     ApplicationId = None
     ApplicationKey = None
+    Proxies = None
     Verbose = None
 
 def get_from_metadata(parameter):
@@ -248,13 +249,14 @@ def get_azure_config(options):
 
     config.type = options.get("--type")
     config.RGName = options.get("--resourceGroup")
-    config.VMName = options.get("--plug")
+    config.InstanceName = options.get("--plug")
     config.SubscriptionId = options.get("--subscriptionId")
     config.Cloud = options.get("--cloud")
     config.UseMSI = "--msi" in options
     config.Tenantid = options.get("--tenantId")
     config.ApplicationId = options.get("--username")
     config.ApplicationKey = options.get("--password")
+    config.Proxy = options.get("--proxy")
     config.Verbose = options.get("--verbose")
 
     if not config.RGName:
@@ -287,24 +289,27 @@ def get_azure_credentials(config):
     cloud_environment = get_azure_cloud_environment(config)
     if config.UseMSI and cloud_environment:
         from msrestazure.azure_active_directory import MSIAuthentication
-        credentials = MSIAuthentication(cloud_environment=cloud_environment)
+        credentials = MSIAuthentication(cloud_environment=cloud_environment,
+                          proxies={"https": config.Proxy})
     elif config.UseMSI:
         from msrestazure.azure_active_directory import MSIAuthentication
-        credentials = MSIAuthentication()
+        credentials = MSIAuthentication(proxies={"https": config.Proxy})
     elif cloud_environment:
         from azure.common.credentials import ServicePrincipalCredentials
         credentials = ServicePrincipalCredentials(
             client_id = config.ApplicationId,
             secret = config.ApplicationKey,
             tenant = config.Tenantid,
-            cloud_environment=cloud_environment
+            cloud_environment=cloud_environment,
+            proxies={"https": config.Proxy}
         )
     else:
         from azure.common.credentials import ServicePrincipalCredentials
         credentials = ServicePrincipalCredentials(
             client_id = config.ApplicationId,
             secret = config.ApplicationKey,
-            tenant = config.Tenantid
+            tenant = config.Tenantid,
+            proxies={"https": config.Proxy}
         )
 
     return credentials

@@ -63,6 +63,11 @@ When using network fencing the reboot-action will cause a quick-return once the 
 		<content type="string"  />
 		<shortdesc lang="en">Application ID</shortdesc>
 	</parameter>
+	<parameter name="type" unique="0" required="0">
+		<getopt mixed="--type=[type]" />
+		<content type="string" default="vm"  />
+		<shortdesc lang="en">Type of machine (e.g. vm or hana)</shortdesc>
+	</parameter>
 	<parameter name="resourceGroup" unique="0" required="0">
 		<getopt mixed="--resourceGroup=[name]" />
 		<content type="string"  />
@@ -97,6 +102,11 @@ When using network fencing the reboot-action will cause a quick-return once the 
 		<getopt mixed="--cloud=[name]" />
 		<content type="string"  />
 		<shortdesc lang="en">Name of the cloud you want to use.</shortdesc>
+	</parameter>
+	<parameter name="proxy" unique="0" required="0">
+		<getopt mixed="--proxy=[proxy]" />
+		<content type="string" default=""  />
+		<shortdesc lang="en">Proxy (e.g. http://192.168.1.2:3128).</shortdesc>
 	</parameter>
 	<parameter name="quiet" unique="0" required="0">
 		<getopt mixed="-q, --quiet" />
