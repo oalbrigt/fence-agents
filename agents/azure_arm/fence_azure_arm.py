@@ -140,7 +140,7 @@ def set_power_status(clients, options):
                 if options["--type"] == "vm":
                     instance_client.virtual_machines.power_off(rgName, instanceName, skip_shutdown=True, proxies={"https": options["--proxy"]})
                 elif options["--type"] == "hana":
-                    instanceStatus = instance_client.hana_instances.shutdown(rgName, instanceName, custom_headers=hana_headers, proxies={"https": options["--proxy"]})
+                    instanceStatus = instance_client.hana_instances.shutdown(rgName, instanceName, skip_shutdown=True, custom_headers=hana_headers, proxies={"https": options["--proxy"]})
             elif (options["--action"]=="on"):
                 logging.info("Starting " + instanceName + " in resource group " + rgName)
                 if options["--type"] == "vm":
