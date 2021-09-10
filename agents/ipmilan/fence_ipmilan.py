@@ -1,6 +1,7 @@
 #!@PYTHON@ -tt
 
 import sys, re, os
+import logging
 import atexit
 from pipes import quote
 sys.path.append("@FENCEAGENTSLIBDIR@")
@@ -88,6 +89,13 @@ def create_command(options, action):
 
 	if "--ipmitool-timeout" in options:
 		Cmd.append(" -N " + options["--ipmitool-timeout"])
+
+	if options.get("--disable-timeout", "").lower() in ["1", "yes", "on", "true"] and \
+			not re.search("-R", Cmd.cmd):
+		# timeout based on pacemaker timeout or keyboard interrupt
+		retries = 3600
+		logging.debug("disable_timeout enabled: setting ipmitool retries to " + str(retries))
+		Cmd.append(" -R " + str(retries))
 
 	# --action / -o
 	Cmd.append(" chassis power " + action)
