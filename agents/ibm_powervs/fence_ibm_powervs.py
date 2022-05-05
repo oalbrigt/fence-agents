@@ -1,4 +1,4 @@
-#!@PYTHON@ -tt
+#!/usr/libexec/platform-python -tt
 
 import sys
 import pycurl, io, json
@@ -28,14 +28,13 @@ def get_token(conn, options):
 
 def get_list(conn, options):
 	outlets = {}
-
+	
 	try:
 		command = "cloud-instances/{}/pvm-instances".format(options["--instance"])
 		res = send_command(conn, command)
 	except Exception as e:
 		logging.debug("Failed: {}".format(e))
 		return outlets
-
 	for r in res["pvmInstances"]:
 		if "--verbose" in options:
 			logging.debug(json.dumps(r, indent=2))
@@ -44,6 +43,7 @@ def get_list(conn, options):
 	return outlets
 
 def get_power_status(conn, options):
+
 	try:
 		command = "cloud-instances/{}/pvm-instances/{}".format(
 				options["--instance"], options["--plug"])
@@ -52,10 +52,11 @@ def get_power_status(conn, options):
 	except KeyError as e:
 		logging.debug("Failed: Unable to get status for {}".format(e))
 		fail(EC_STATUS)
-
+	
 	return result
 
 def set_power_status(conn, options):
+
 	action = {
 		"on" :  '{"action" : "start"}',
 		"off" : '{"action" : "immediate-shutdown"}',
@@ -92,6 +93,30 @@ def connect(opt, token):
 		"CRN: {}".format(opt["--crn"]),
 		"User-Agent: curl",
 	])
+	
+	return conn
+
+def auth_connect(opt):
+	conn = pycurl.Curl()
+
+	# setup correct URL
+	conn.base_url = "https://iam.cloud.ibm.com/"
+
+	if opt["--verbose-level"] > 1:
+		conn.setopt(pycurl.VERBOSE, 1)
+
+	conn.setopt(pycurl.CONNECTTIMEOUT,int(opt["--shell-timeout"]))
+	conn.setopt(pycurl.TIMEOUT, int(opt["--shell-timeout"]))
+	conn.setopt(pycurl.SSL_VERIFYPEER, 1)
+	conn.setopt(pycurl.SSL_VERIFYHOST, 2)
+	conn.setopt(pycurl.PROXY, "{}".format(opt["--proxy"]))
+
+	# set auth token for later requests
+	conn.setopt(pycurl.HTTPHEADER, [
+		"Content-type: application/x-www-form-urlencoded",
+		"Accept: application/json",
+		"User-Agent: curl",
+	])
 
 	return conn
 
@@ -124,7 +149,7 @@ def disconnect(conn):
 
 def send_command(conn, command, method="GET", action=None, printResult=True):
 	url = conn.base_url + command
-
+	
 	conn.setopt(pycurl.URL, url.encode("ascii"))
 
 	web_buffer = io.BytesIO()
@@ -139,6 +164,7 @@ def send_command(conn, command, method="GET", action=None, printResult=True):
 	conn.setopt(pycurl.WRITEFUNCTION, web_buffer.write)
 
 	try:
+		time.sleep(3)
 		conn.perform()
 	except Exception as e:
 		logging.error("send_command(): {}".format(e))
@@ -232,7 +258,7 @@ def main():
 	atexit.register(atexit_handler)
 	define_new_opts()
 
-	all_opt["shell_timeout"]["default"] = "15"
+	all_opt["shell_timeout"]["default"] = "500"
 	all_opt["power_timeout"]["default"] = "30"
 	all_opt["power_wait"]["default"] = "1"
 	all_opt["stonith_status_sleep"]["default"] = "3"
