@@ -69,6 +69,7 @@ fence-agents-kdump \\
 fence-agents-ldom \\
 fence-agents-lpar \\
 fence-agents-mpath \\
+fence-agents-nutanix \\
 fence-agents-netio \\
 fence-agents-ovh \\
 fence-agents-ovm \\
@@ -929,6 +930,18 @@ via telnet or SSH.
 %files netio
 %{_sbindir}/fence_netio
 %{_mandir}/man8/fence_netio.8*
+
+%package nutanix
+License: GPL-2.0-or-later AND LGPL-2.0-or-later
+Summary: Fence agent for Nutanix with REST API
+Requires: fence-agents-common = %{version}-%{release}
+BuildArch: noarch
+Obsoletes: fence-agents < 3.1.13
+%description nutanix
+Fence agent for Nutanix with REST API.
+%files nutanix
+%{_sbindir}/fence_nutanix
+%{_mandir}/man8/fence_nutanix.8*
 
 %ifarch x86_64 ppc64le
 %package openstack
