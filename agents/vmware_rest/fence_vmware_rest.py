@@ -6,7 +6,7 @@ import logging
 import atexit
 sys.path.append("@FENCEAGENTSLIBDIR@")
 from fencing import *
-from fencing import fail, run_delay, EC_LOGIN_DENIED, EC_STATUS
+from fencing import fail, fail_usage, run_command, run_delay, EC_LOGIN_DENIED, EC_STATUS
 
 if sys.version_info[0] > 2: import urllib.parse as urllib
 else: import urllib
@@ -69,6 +69,8 @@ def get_list(conn, options):
 	return outlets
 
 def connect(opt):
+	if "--token" not in opt and ("--username" not in opt or "--password" not in opt):
+		fail_usage("Failed: You must provide either a token, a token-script, or a username/password.")
 	conn = pycurl.Curl()
 
 	## setup correct URL
@@ -88,9 +90,6 @@ def connect(opt):
 		"Accept: application/json",
 	])
 
-	conn.setopt(pycurl.HTTPAUTH, pycurl.HTTPAUTH_BASIC)
-	conn.setopt(pycurl.USERPWD, opt["--username"] + ":" + opt["--password"])
-
 	conn.setopt(pycurl.TIMEOUT, int(opt["--shell-timeout"]))
 
 	if "--ssl-secure" in opt:
@@ -100,16 +99,22 @@ def connect(opt):
 		conn.setopt(pycurl.SSL_VERIFYPEER, 0)
 		conn.setopt(pycurl.SSL_VERIFYHOST, 0)
 
-	try:
-		result = send_command(conn, "com/vmware/cis/session", "POST")
-	except Exception as e:
-		logging.debug("Failed: {}".format(e))
-		fail(EC_LOGIN_DENIED)
+	if "--token" not in opt:
+		conn.setopt(pycurl.HTTPAUTH, pycurl.HTTPAUTH_BASIC)
+		conn.setopt(pycurl.USERPWD, opt["--username"] + ":" + opt["--password"])
+
+		try:
+			result = send_command(conn, "com/vmware/cis/session", "POST")
+		except Exception as e:
+			logging.debug("Failed: {}".format(e))
+			fail(EC_LOGIN_DENIED)
+
+		conn.setopt(pycurl.HTTPAUTH, pycurl.HTTPAUTH_NONE)
 
 	# set session id for later requests
 	conn.setopt(pycurl.HTTPHEADER, [
 		"Accept: application/json",
-		"vmware-api-session-id: {}".format(result["value"]),
+		"vmware-api-session-id: {}".format(opt["--token"] if "--token" in opt else result["value"]),
 	])
 
 	return conn
@@ -182,6 +187,20 @@ def define_new_opts():
 		"shortdesc" : "Filter to only return relevant VMs. It can be used to avoid "
 			      "the agent failing when more than 1000 VMs should be returned.",
 		"order" : 2}
+	all_opt["token"] = {
+		"getopt" : ":",
+		"longopt" : "token",
+		"help" : "--token=[token]                API Token",
+		"required" : "0",
+		"shortdesc" : "API Token",
+		"order" : 2}
+	all_opt["token_script"] = {
+		"getopt" : ":",
+		"longopt" : "token-script",
+		"help" : "--token-script=[script]        Script to retrieve a token",
+		"required" : "0",
+		"shortdesc" : "Script to retrieve a token",
+		"order" : 2}
 
 
 def main():
@@ -190,11 +209,15 @@ def main():
 		"api_path",
 		"login",
 		"passwd",
+		"no_login",
+		"no_password",
 		"ssl",
 		"notls",
 		"web",
 		"port",
 		"filter",
+		"token",
+		"token_script",
 	]
 
 	atexit.register(atexit_handler)
@@ -204,6 +227,12 @@ def main():
 	all_opt["power_wait"]["default"] = "1"
 
 	options = check_input(device_opt, process_input(device_opt))
+	if "--token-script" in options:
+		try:
+			options["--token"] = run_command(options, options["--token-script"])[1].strip()
+		except Exception as e:
+			logging.error("Failed to execute token script: {}".format(e))
+			sys.exit(EC_LOGIN_DENIED)
 
 	docs = {}
 	docs["shortdesc"] = "Fence agent for VMware REST API"

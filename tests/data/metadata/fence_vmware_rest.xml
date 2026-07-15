@@ -25,7 +25,7 @@ NOTE: If there's more than 1000 VMs there is a filter parameter to work around t
 		<content type="integer" default="80"  />
 		<shortdesc lang="en">TCP/UDP port to use for connection with device</shortdesc>
 	</parameter>
-	<parameter name="login" unique="0" required="1" deprecated="1">
+	<parameter name="login" unique="0" required="0" deprecated="1">
 		<getopt mixed="-l, --username=[name]" />
 		<content type="string"  />
 		<shortdesc lang="en">Login name</shortdesc>
@@ -80,7 +80,7 @@ NOTE: If there's more than 1000 VMs there is a filter parameter to work around t
 		<content type="boolean"  />
 		<shortdesc lang="en">Use SSL connection with verifying certificate</shortdesc>
 	</parameter>
-	<parameter name="username" unique="0" required="1" obsoletes="login">
+	<parameter name="username" unique="0" required="0" obsoletes="login">
 		<getopt mixed="-l, --username=[name]" />
 		<content type="string"  />
 		<shortdesc lang="en">Login name</shortdesc>
@@ -93,6 +93,16 @@ NOTE: If there's more than 1000 VMs there is a filter parameter to work around t
 		<getopt mixed="--filter=[filter]" />
 		<content type="string"  />
 		<shortdesc lang="en">Filter to only return relevant VMs. It can be used to avoid the agent failing when more than 1000 VMs should be returned.</shortdesc>
+	</parameter>
+	<parameter name="token" unique="0" required="0">
+		<getopt mixed="--token=[token]" />
+		<content type="string"  />
+		<shortdesc lang="en">API Token</shortdesc>
+	</parameter>
+	<parameter name="token_script" unique="0" required="0">
+		<getopt mixed="--token-script=[script]" />
+		<content type="string"  />
+		<shortdesc lang="en">Script to retrieve a token</shortdesc>
 	</parameter>
 	<parameter name="quiet" unique="0" required="0">
 		<getopt mixed="-q, --quiet" />
