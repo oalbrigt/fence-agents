@@ -1280,6 +1280,19 @@ def source_env(env_file):
     os.environ.clear()
     os.environ.update(line.partition('=')[::2] for line in output.decode("utf-8").split('\0') if not re.match(r"^\s*$", line))
 
+def fail_import_if_not_metadata_or_help_action(message, e):
+    args = sys.argv[1:]
+    opts = list(zip(args, args[1:] + [None]))
+    if any(opt in ("-h", "--help", "--action=metadata", "--action=manpage") or (opt in ("-o", "--action") and arg in ("metadata", "manpage")) for opt, arg in opts):
+        return
+    # When no command-line args, input might be from stdin - defer error to let argument validation happen
+    if len(args) == 0:
+        return
+    # Otherwise fail immediately
+    logging.getLogger().name = os.path.basename(sys.argv[0])
+    logging.error("%s: %s", message, str(e))
+    sys.exit(EC_GENERIC_ERROR)
+
 # Convert array of format [[key1, value1], [key2, value2], ... [keyN, valueN]] to dict, where key is
 # in format a.b.c.d...z and returned dict has key only z
 def array_to_dict(array):
