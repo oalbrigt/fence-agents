@@ -68,9 +68,9 @@ def get_list(conn, options):
 
 	return outlets
 
-def connect(opt):
-	if "--token" not in opt and ("--username" not in opt or "--password" not in opt):
-		fail_usage("Failed: You must provide either a token, a token-script, or a username/password.")
+def connect(opt, token=None):
+	if token is None and ("--username" not in opt or "--password" not in opt):
+		fail_usage("Failed: You must provide either a token-script or a username/password.")
 	conn = pycurl.Curl()
 
 	## setup correct URL
@@ -99,7 +99,7 @@ def connect(opt):
 		conn.setopt(pycurl.SSL_VERIFYPEER, 0)
 		conn.setopt(pycurl.SSL_VERIFYHOST, 0)
 
-	if "--token" not in opt:
+	if token is None:
 		conn.setopt(pycurl.HTTPAUTH, pycurl.HTTPAUTH_BASIC)
 		conn.setopt(pycurl.USERPWD, opt["--username"] + ":" + opt["--password"])
 
@@ -114,7 +114,7 @@ def connect(opt):
 	# set session id for later requests
 	conn.setopt(pycurl.HTTPHEADER, [
 		"Accept: application/json",
-		"vmware-api-session-id: {}".format(opt["--token"] if "--token" in opt else result["value"]),
+		"vmware-api-session-id: {}".format(token if token is not None else result["value"]),
 	])
 
 	return conn
@@ -187,13 +187,6 @@ def define_new_opts():
 		"shortdesc" : "Filter to only return relevant VMs. It can be used to avoid "
 			      "the agent failing when more than 1000 VMs should be returned.",
 		"order" : 2}
-	all_opt["token"] = {
-		"getopt" : ":",
-		"longopt" : "token",
-		"help" : "--token=[token]                API Token",
-		"required" : "0",
-		"shortdesc" : "API Token",
-		"order" : 2}
 	all_opt["token_script"] = {
 		"getopt" : ":",
 		"longopt" : "token-script",
@@ -216,7 +209,6 @@ def main():
 		"web",
 		"port",
 		"filter",
-		"token",
 		"token_script",
 	]
 
@@ -227,9 +219,10 @@ def main():
 	all_opt["power_wait"]["default"] = "1"
 
 	options = check_input(device_opt, process_input(device_opt))
+	token = None
 	if "--token-script" in options:
 		try:
-			options["--token"] = run_command(options, options["--token-script"])[1].strip()
+			token = run_command(options, options["--token-script"])[1].strip()
 		except Exception as e:
 			logging.error("Failed to execute token script: {}".format(e))
 			sys.exit(EC_LOGIN_DENIED)
@@ -250,7 +243,7 @@ for full list of filters."""
 	####
 	run_delay(options)
 
-	conn = connect(options)
+	conn = connect(options, token)
 	atexit.register(disconnect, conn)
 
 	result = fence_action(conn, options, set_power_status, get_power_status, get_list)
