@@ -36,10 +36,11 @@ try:
   import socks
   try:
     from google.oauth2.credentials import Credentials as GoogleCredentials
-  except:
+  except ImportError:
     from oauth2client.client import GoogleCredentials
-except:
-  pass
+except Exception as e:
+    from fencing import fail_import_if_not_metadata_or_help_action
+    fail_import_if_not_metadata_or_help_action("Failed to import Google Cloud dependencies", e)
 
 VERSION = '1.0.5'
 ACTION_IDS = {
